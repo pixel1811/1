@@ -6,7 +6,7 @@
 <style>
 body{font-family:sans-serif;padding:10px;max-width:520px;margin:auto}
 textarea{width:100%;height:130px;margin:6px 0;font-size:14px}
-button{cursor:pointer}
+button{cursor:pointer;margin-bottom:6px}
 h4{margin:10px 0 4px;font-size:15px}
 
 .card{
@@ -15,7 +15,7 @@ h4{margin:10px 0 4px;font-size:15px}
   padding:8px;
   margin:6px 0;
   background:#fafafa;
-  transition:.2s
+  transition:.2s;
 }
 .card.copied{
   background:#e6f7e6;
@@ -24,7 +24,7 @@ h4{margin:10px 0 4px;font-size:15px}
 .link{
   font-size:13px;
   word-break:break-all;
-  margin-bottom:6px
+  margin-bottom:6px;
 }
 .copy{
   width:100%;
@@ -32,16 +32,28 @@ h4{margin:10px 0 4px;font-size:15px}
   font-size:14px;
   border:1px solid #aaa;
   border-radius:6px;
-  background:#eee
+  background:#eee;
 }
 .copy.copied{
   background:#4caf50;
   color:#fff;
-  border-color:#4caf50
+  border-color:#4caf50;
 }
 .history .card{
   background:#f0f0f0;
-  border-style:dashed
+  border-style:dashed;
+}
+.restore-btn{
+  display:block;
+  width:100%;
+  padding:6px;
+  margin-bottom:10px;
+  background:#007bff;
+  color:#fff;
+  border:none;
+  border-radius:6px;
+  font-size:14px;
+  cursor:pointer;
 }
 </style>
 </head>
@@ -49,8 +61,8 @@ h4{margin:10px 0 4px;font-size:15px}
 
 <h3>Pixeldrain → Download</h3>
 
-<h4>История (24 часа)</h4>
-<div id="history" class="history"></div>
+<!-- кнопка восстановления исходных ссылок -->
+<button class="restore-btn" onclick="restoreOriginal()">Восстановить исходные ссылки</button>
 
 <textarea id="input" placeholder="Вставь ссылки (по одной на строку)"></textarea>
 <button onclick="convert()" style="width:100%;padding:8px">Преобразовать</button>
@@ -58,28 +70,54 @@ h4{margin:10px 0 4px;font-size:15px}
 <h4>Текущие ссылки</h4>
 <div id="links"></div>
 
+<h4>История последних преобразований (24ч)</h4>
+<div id="history" class="history"></div>
+
 <script>
 const TTL = 24*60*60*1000; // 24 часа
 const KEY = "pixeldrain_history";
+const ORIG = "pixeldrain_original";
 
 loadHistory();
 
+// сохраняем оригинальные вставленные строки
+function saveOriginal(lines){
+  const now = Date.now();
+  localStorage.setItem(ORIG, JSON.stringify({lines,time:now}));
+}
+
+function restoreOriginal(){
+  const data = JSON.parse(localStorage.getItem(ORIG)||'{"lines":[],"time":0}');
+  const now = Date.now();
+  if(now - data.time < TTL){
+    document.getElementById("input").value = data.lines.join("\n");
+  } else {
+    alert("Исходные ссылки устарели (>24ч)");
+  }
+}
+
 function convert(){
   const input=document.getElementById("input").value.trim();
-  if(!input)return;
+  if(!input) return;
 
+  const lines = input.split(/\n+/);
   const links=document.getElementById("links");
-  [...links.children].forEach(saveCard);
 
+  // сохраняем исходные строки
+  saveOriginal(lines);
+
+  // перенос текущих карточек в историю
+  [...links.children].forEach(saveCard);
   links.innerHTML="";
 
-  input.split(/\n+/).forEach(line=>{
+  lines.forEach(line=>{
     const m=line.match(/pixeldrain\.com\/u\/([a-zA-Z0-9]+)/);
-    if(!m)return;
+    if(!m) return;
     createCard(`https://pixeldrain.com/api/file/${m[1]}`, links, false);
   });
 
   document.getElementById("input").value="";
+  renderHistory();
 }
 
 function createCard(url, container, copied){
@@ -95,7 +133,8 @@ function createCard(url, container, copied){
   btn.textContent=copied?"✔ Скопировано":"📋 Копировать";
   btn.onclick=()=>copy(url,btn,card);
 
-  card.append(link,btn);
+  card.appendChild(link);
+  card.appendChild(btn);
   container.appendChild(card);
 }
 
@@ -104,25 +143,48 @@ function copy(url,btn,card){
     btn.textContent="✔ Скопировано";
     btn.classList.add("copied");
     card.classList.add("copied");
-    saveCard(card);
+    saveCard(card,true);
+    setTimeout(()=>{
+      btn.textContent="📋 Копировать";
+      btn.classList.remove("copied");
+    },1200);
   });
 }
 
-function saveCard(card){
+// сохраняем карточку копирования для истории
+function saveCard(card, copied){
   const url=card.querySelector(".link").textContent;
-  const data=JSON.parse(localStorage.getItem(KEY)||"[]");
-  data.unshift({url,time:Date.now(),copied:card.classList.contains("copied")});
-  localStorage.setItem(KEY,JSON.stringify(clean(data)));
+  const data = JSON.parse(localStorage.getItem(KEY)||"[]");
+  const exists = data.find(d=>d.url===url);
+  if(exists){ exists.copied=copied; exists.time=Date.now(); }
+  else data.unshift({url:url,copied:copied,time:Date.now()});
+  localStorage.setItem(KEY,JSON.stringify(cleanHistory(data)));
 }
 
+// загрузка истории и рендер
 function loadHistory(){
-  const history=document.getElementById("history");
-  const data=clean(JSON.parse(localStorage.getItem(KEY)||"[]"));
-  localStorage.setItem(KEY,JSON.stringify(data));
-  data.forEach(i=>createCard(i.url,history,i.copied));
+  renderHistory();
+  const cards = JSON.parse(localStorage.getItem(KEY)||"[]");
+  const links=document.getElementById("links");
+  cards.forEach(c=>createCard(c.url,links,c.copied));
 }
 
-function clean(data){
+function renderHistory(){
+  const history=document.getElementById("history");
+  history.innerHTML="";
+  const data=JSON.parse(localStorage.getItem(KEY)||"[]").filter(i=>Date.now()-i.time<TTL).slice(0,50);
+  localStorage.setItem(KEY,JSON.stringify(data));
+
+  data.forEach(item=>{
+    const card=document.createElement("div");
+    card.className="card"+(item.copied?" copied":"");
+    card.textContent=item.url;
+    history.appendChild(card);
+  });
+}
+
+// фильтр 24 часа
+function cleanHistory(data){
   const now=Date.now();
   return data.filter(i=>now-i.time<TTL).slice(0,50);
 }
