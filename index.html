@@ -4,45 +4,127 @@
 <meta charset="UTF-8">
 <title>Pixeldrain Converter</title>
 <style>
-body{font-family:sans-serif;padding:10px}
-textarea{width:100%;height:160px;margin:5px 0}
-button{width:100%;padding:10px;font-size:16px}
-a{display:block;word-break:break-all;margin:4px 0}
-#links{margin-top:8px}
+body{font-family:sans-serif;padding:10px;max-width:520px;margin:auto}
+textarea{width:100%;height:130px;margin:6px 0;font-size:14px}
+button{cursor:pointer}
+h4{margin:10px 0 4px;font-size:15px}
+
+.card{
+  border:1px solid #ddd;
+  border-radius:8px;
+  padding:8px;
+  margin:6px 0;
+  background:#fafafa;
+  transition:.2s
+}
+.card.copied{
+  background:#e6f7e6;
+  border-color:#4caf50;
+}
+.link{
+  font-size:13px;
+  word-break:break-all;
+  margin-bottom:6px
+}
+.copy{
+  width:100%;
+  padding:6px;
+  font-size:14px;
+  border:1px solid #aaa;
+  border-radius:6px;
+  background:#eee
+}
+.copy.copied{
+  background:#4caf50;
+  color:#fff;
+  border-color:#4caf50
+}
+.history .card{
+  background:#f0f0f0;
+  border-style:dashed
+}
 </style>
 </head>
 <body>
 
 <h3>Pixeldrain → Download</h3>
 
+<h4>История (24 часа)</h4>
+<div id="history" class="history"></div>
+
 <textarea id="input" placeholder="Вставь ссылки (по одной на строку)"></textarea>
-<button onclick="convert()">Преобразовать</button>
-<textarea id="output" placeholder="Ссылки для копирования"></textarea>
+<button onclick="convert()" style="width:100%;padding:8px">Преобразовать</button>
+
+<h4>Текущие ссылки</h4>
 <div id="links"></div>
 
 <script>
+const TTL = 24*60*60*1000; // 24 часа
+const KEY = "pixeldrain_history";
+
+loadHistory();
+
 function convert(){
-    const input=document.getElementById("input").value.trim();
-    const linksDiv=document.getElementById("links");
-    const out=[];
-    linksDiv.innerHTML="";
+  const input=document.getElementById("input").value.trim();
+  if(!input)return;
 
-    input.split(/\n+/).forEach(line=>{
-        const m=line.match(/pixeldrain\.com\/u\/([a-zA-Z0-9]+)/);
-        if(!m)return;
+  const links=document.getElementById("links");
+  [...links.children].forEach(saveCard);
 
-        const url=`https://pixeldrain.com/api/file/${m[1]}`;
-        out.push(url);
+  links.innerHTML="";
 
-        const a=document.createElement("a");
-        a.href=url;
-        a.textContent=url;
-        a.target="_blank";
-        a.rel="noreferrer noopener";
-        linksDiv.appendChild(a);
-    });
+  input.split(/\n+/).forEach(line=>{
+    const m=line.match(/pixeldrain\.com\/u\/([a-zA-Z0-9]+)/);
+    if(!m)return;
+    createCard(`https://pixeldrain.com/api/file/${m[1]}`, links, false);
+  });
 
-    document.getElementById("output").value=out.join("\n");
+  document.getElementById("input").value="";
+}
+
+function createCard(url, container, copied){
+  const card=document.createElement("div");
+  card.className="card"+(copied?" copied":"");
+
+  const link=document.createElement("div");
+  link.className="link";
+  link.textContent=url;
+
+  const btn=document.createElement("button");
+  btn.className="copy"+(copied?" copied":"");
+  btn.textContent=copied?"✔ Скопировано":"📋 Копировать";
+  btn.onclick=()=>copy(url,btn,card);
+
+  card.append(link,btn);
+  container.appendChild(card);
+}
+
+function copy(url,btn,card){
+  navigator.clipboard.writeText(url).then(()=>{
+    btn.textContent="✔ Скопировано";
+    btn.classList.add("copied");
+    card.classList.add("copied");
+    saveCard(card);
+  });
+}
+
+function saveCard(card){
+  const url=card.querySelector(".link").textContent;
+  const data=JSON.parse(localStorage.getItem(KEY)||"[]");
+  data.unshift({url,time:Date.now(),copied:card.classList.contains("copied")});
+  localStorage.setItem(KEY,JSON.stringify(clean(data)));
+}
+
+function loadHistory(){
+  const history=document.getElementById("history");
+  const data=clean(JSON.parse(localStorage.getItem(KEY)||"[]"));
+  localStorage.setItem(KEY,JSON.stringify(data));
+  data.forEach(i=>createCard(i.url,history,i.copied));
+}
+
+function clean(data){
+  const now=Date.now();
+  return data.filter(i=>now-i.time<TTL).slice(0,50);
 }
 </script>
 
