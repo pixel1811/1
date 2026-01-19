@@ -2,20 +2,41 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pixeldrain Converter</title>
 <style>
-body{font-family:sans-serif;padding:10px;max-width:520px;margin:auto}
-textarea{width:100%;height:130px;margin:6px 0;font-size:14px}
-button{cursor:pointer;margin-bottom:6px}
-h4{margin:10px 0 4px;font-size:15px}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  padding:8px;
+  font-family:sans-serif;
+  background:#fff;
+}
+h3,h4{margin:8px 0;font-size:15px}
+textarea{
+  width:100%;
+  height:120px;
+  padding:6px;
+  font-size:14px;
+}
+button{
+  width:100%;
+  padding:10px;
+  font-size:14px;
+  margin:4px 0;
+  border:none;
+  border-radius:6px;
+}
+.convert{background:#007bff;color:#fff}
+.restore{background:#6c757d;color:#fff}
+.clear{background:#dc3545;color:#fff}
 
 .card{
   border:1px solid #ddd;
   border-radius:8px;
   padding:8px;
   margin:6px 0;
-  background:#fafafa;
-  transition:.2s;
+  background:#f9f9f9;
 }
 .card.copied{
   background:#e6f7e6;
@@ -27,33 +48,12 @@ h4{margin:10px 0 4px;font-size:15px}
   margin-bottom:6px;
 }
 .copy{
-  width:100%;
-  padding:6px;
-  font-size:14px;
-  border:1px solid #aaa;
-  border-radius:6px;
   background:#eee;
+  color:#000;
 }
 .copy.copied{
   background:#4caf50;
   color:#fff;
-  border-color:#4caf50;
-}
-.history .card{
-  background:#f0f0f0;
-  border-style:dashed;
-}
-.restore-btn{
-  display:block;
-  width:100%;
-  padding:6px;
-  margin-bottom:10px;
-  background:#007bff;
-  color:#fff;
-  border:none;
-  border-radius:6px;
-  font-size:14px;
-  cursor:pointer;
 }
 </style>
 </head>
@@ -61,133 +61,107 @@ h4{margin:10px 0 4px;font-size:15px}
 
 <h3>Pixeldrain → Download</h3>
 
-<!-- кнопка восстановления исходных ссылок -->
-<button class="restore-btn" onclick="restoreOriginal()">Восстановить исходные ссылки</button>
+<button class="restore" onclick="restoreOriginal()">Восстановить исходные ссылки</button>
 
 <textarea id="input" placeholder="Вставь ссылки (по одной на строку)"></textarea>
-<button onclick="convert()" style="width:100%;padding:8px">Преобразовать</button>
+<button class="convert" onclick="convert()">Преобразовать</button>
 
-<h4>Текущие ссылки</h4>
+<h4>Ссылки для копирования</h4>
+<button class="clear" onclick="clearLinks()">Очистить ссылки</button>
 <div id="links"></div>
 
-<h4>История последних преобразований (24ч)</h4>
-<div id="history" class="history"></div>
-
 <script>
-const TTL = 24*60*60*1000; // 24 часа
-const KEY = "pixeldrain_history";
-const ORIG = "pixeldrain_original";
+const TTL=24*60*60*1000;
+const KEY_LINKS="pd_links";
+const KEY_ORIG="pd_original";
 
-loadHistory();
+loadLinks();
 
-// сохраняем оригинальные вставленные строки
-function saveOriginal(lines){
-  const now = Date.now();
-  localStorage.setItem(ORIG, JSON.stringify({lines,time:now}));
-}
-
-function restoreOriginal(){
-  const data = JSON.parse(localStorage.getItem(ORIG)||'{"lines":[],"time":0}');
-  const now = Date.now();
-  if(now - data.time < TTL){
-    document.getElementById("input").value = data.lines.join("\n");
-  } else {
-    alert("Исходные ссылки устарели (>24ч)");
-  }
-}
-
+// ---------- преобразование ----------
 function convert(){
   const input=document.getElementById("input").value.trim();
-  if(!input) return;
+  if(!input)return;
 
-  const lines = input.split(/\n+/);
-  const links=document.getElementById("links");
-
-  // сохраняем исходные строки
+  const lines=input.split(/\n+/);
   saveOriginal(lines);
 
-  // перенос текущих карточек в историю
-  [...links.children].forEach(saveCard);
-  links.innerHTML="";
+  const data=loadData(KEY_LINKS);
 
   lines.forEach(line=>{
     const m=line.match(/pixeldrain\.com\/u\/([a-zA-Z0-9]+)/);
-    if(!m) return;
-    createCard(`https://pixeldrain.com/api/file/${m[1]}`, links, false);
+    if(!m)return;
+    const url=`https://pixeldrain.com/api/file/${m[1]}`;
+    if(!data.find(i=>i.url===url)){
+      data.unshift({url,copied:false,time:Date.now()});
+    }
   });
 
+  saveData(KEY_LINKS,data);
+  renderLinks();
   document.getElementById("input").value="";
-  renderHistory();
 }
 
-function createCard(url, container, copied){
-  const card=document.createElement("div");
-  card.className="card"+(copied?" copied":"");
-
-  const link=document.createElement("div");
-  link.className="link";
-  link.textContent=url;
-
-  const btn=document.createElement("button");
-  btn.className="copy"+(copied?" copied":"");
-  btn.textContent=copied?"✔ Скопировано":"📋 Копировать";
-  btn.onclick=()=>copy(url,btn,card);
-
-  card.appendChild(link);
-  card.appendChild(btn);
-  container.appendChild(card);
-}
-
-function copy(url,btn,card){
-  navigator.clipboard.writeText(url).then(()=>{
-    btn.textContent="✔ Скопировано";
-    btn.classList.add("copied");
-    card.classList.add("copied");
-    saveCard(card,true);
-    setTimeout(()=>{
-      btn.textContent="📋 Копировать";
-      btn.classList.remove("copied");
-    },1200);
-  });
-}
-
-// сохраняем карточку копирования для истории
-function saveCard(card, copied){
-  const url=card.querySelector(".link").textContent;
-  const data = JSON.parse(localStorage.getItem(KEY)||"[]");
-  const exists = data.find(d=>d.url===url);
-  if(exists){ exists.copied=copied; exists.time=Date.now(); }
-  else data.unshift({url:url,copied:copied,time:Date.now()});
-  localStorage.setItem(KEY,JSON.stringify(cleanHistory(data)));
-}
-
-// загрузка истории и рендер
-function loadHistory(){
-  renderHistory();
-  const cards = JSON.parse(localStorage.getItem(KEY)||"[]");
-  const links=document.getElementById("links");
-  cards.forEach(c=>createCard(c.url,links,c.copied));
-}
-
-function renderHistory(){
-  const history=document.getElementById("history");
-  history.innerHTML="";
-  const data=JSON.parse(localStorage.getItem(KEY)||"[]").filter(i=>Date.now()-i.time<TTL).slice(0,50);
-  localStorage.setItem(KEY,JSON.stringify(data));
+// ---------- рендер ----------
+function renderLinks(){
+  const box=document.getElementById("links");
+  box.innerHTML="";
+  const data=clean(loadData(KEY_LINKS));
 
   data.forEach(item=>{
     const card=document.createElement("div");
     card.className="card"+(item.copied?" copied":"");
-    card.textContent=item.url;
-    history.appendChild(card);
+
+    const link=document.createElement("div");
+    link.className="link";
+    link.textContent=item.url;
+
+    const btn=document.createElement("button");
+    btn.className="copy"+(item.copied?" copied":"");
+    btn.textContent=item.copied?"✔ Скопировано":"📋 Копировать";
+    btn.onclick=()=>copy(item.url,btn,card);
+
+    card.append(link,btn);
+    box.appendChild(card);
+  });
+
+  saveData(KEY_LINKS,data);
+}
+
+// ---------- копирование ----------
+function copy(url,btn,card){
+  navigator.clipboard.writeText(url).then(()=>{
+    const data=loadData(KEY_LINKS);
+    const item=data.find(i=>i.url===url);
+    if(item)item.copied=true;
+    saveData(KEY_LINKS,data);
+    renderLinks();
   });
 }
 
-// фильтр 24 часа
-function cleanHistory(data){
-  const now=Date.now();
-  return data.filter(i=>now-i.time<TTL).slice(0,50);
+// ---------- очистка ----------
+function clearLinks(){
+  if(confirm("Удалить все ссылки?")){
+    localStorage.removeItem(KEY_LINKS);
+    renderLinks();
+  }
 }
+
+// ---------- исходные ----------
+function saveOriginal(lines){
+  localStorage.setItem(KEY_ORIG,JSON.stringify({lines,time:Date.now()}));
+}
+function restoreOriginal(){
+  const d=JSON.parse(localStorage.getItem(KEY_ORIG)||"{}");
+  if(d.lines && Date.now()-d.time<TTL){
+    document.getElementById("input").value=d.lines.join("\n");
+  }else alert("Нет сохранённых ссылок");
+}
+
+// ---------- storage ----------
+function loadLinks(){renderLinks()}
+function loadData(k){return JSON.parse(localStorage.getItem(k)||"[]")}
+function saveData(k,v){localStorage.setItem(k,JSON.stringify(v))}
+function clean(d){return d.filter(i=>Date.now()-i.time<TTL)}
 </script>
 
 </body>
